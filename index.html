@@ -15,22 +15,15 @@
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="./styles.css">
+  <script defer src="./sounds.js"></script>
   <script defer src="./app.js"></script>
 </head>
 <body>
   <main class="app" id="app">
     <!-- 1 / three tempo presets -->
     <section class="region region-top" aria-labelledby="tempo-heading">
-      <div class="brand-row">
-        <div class="brand">
-          <span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 28 28" fill="none"><path d="M4 18V10M10.5 23V5M17 19V9M23.5 15V13" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/></svg></span>
-          <span class="brand-title">TEMPO<span> SWITCH</span></span>
-        </div>
-        <span class="brand-caption">LIVE METRONOME</span>
-      </div>
       <div class="section-heading">
-        <h1 id="tempo-heading"><span class="section-index">01</span> テンポを設定</h1>
-        <span class="section-help">30–300 BPM</span>
+        <h1 id="tempo-heading">テンポ</h1>
       </div>
       <div class="tempo-grid">
         <div class="tempo-card tempo-a" data-preset="A">
@@ -58,12 +51,24 @@
           </div>
         </div>
       </div>
+      <div class="sound-row">
+        <label for="sound-select" class="sound-label">音色</label>
+        <select id="sound-select" aria-label="メトロノームの音色">
+          <option value="classic">高音クリック（従来の1拍目）</option>
+          <option value="woodblock">ウッドブロック</option>
+          <option value="rimshot">リムショット</option>
+          <option value="hihat">ハイハット</option>
+          <option value="beep">電子ビープ</option>
+          <option value="cowbell">カウベル</option>
+        </select>
+        <button id="preview-btn" class="preview-btn" type="button" aria-label="選択した音色を試聴">▶ 試聴</button>
+      </div>
     </section>
 
     <!-- 2 / sequence editor -->
     <section class="region region-middle" aria-labelledby="sequence-heading">
       <div class="section-heading">
-        <h2 id="sequence-heading"><span class="section-index">02</span> 切り替え順を作る</h2>
+        <h2 id="sequence-heading">シーケンス</h2>
         <span class="sequence-count" id="sequence-count">10 STEPS</span>
       </div>
       <div class="sequence-editor" id="sequence-editor">
@@ -80,22 +85,19 @@
           <button type="button" class="minor-btn" id="clear-btn">全消去</button>
         </div>
       </div>
-      <p class="editor-hint">A / B / C で追加 ・ 並んだ文字をタップして削除</p>
     </section>
 
     <!-- 3 / live performance -->
     <section class="region region-bottom" aria-labelledby="live-heading">
       <div class="section-heading live-heading">
-        <h2 id="live-heading"><span class="section-index">03</span> ワンタッチ切り替え</h2>
+        <h2 id="live-heading">演奏</h2>
         <span id="playback-status" class="status-pill"><span class="status-dot"></span>停止中</span>
       </div>
       <div class="current-row">
         <div class="current-tempo" id="current-tempo">
-          <div class="current-kicker">CURRENT TEMPO</div>
           <div class="current-main"><span class="current-letter" id="current-letter">—</span><strong class="current-bpm" id="current-bpm">—</strong><span class="bpm-unit">BPM</span></div>
         </div>
-        <div class="beat-panel" aria-label="4拍のビジュアル表示">
-          <span class="beat-label">BEAT</span>
+        <div class="beat-panel" aria-label="拍のビジュアル表示">
           <div class="beat-dots" id="beat-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
           <span class="step-progress" id="step-progress">0 / 10</span>
         </div>
@@ -110,7 +112,6 @@
       <div class="live-footer">
         <button class="tool-button" id="stop-btn" type="button" disabled><span aria-hidden="true">■</span> 停止・先頭へ</button>
         <button class="tool-button" id="sound-btn" type="button" aria-pressed="true"><span aria-hidden="true" id="sound-icon">♫</span> <span id="sound-label">音 ON</span></button>
-        <span class="footer-note">最後は先頭にループ</span>
       </div>
       <div class="visually-hidden" id="screenreader-announcement" role="status" aria-live="polite"></div>
     </section>

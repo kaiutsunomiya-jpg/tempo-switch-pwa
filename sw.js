@@ -1,10 +1,11 @@
 /* Offline assets are relative to the GitHub Pages repository URL. */
-const CACHE_NAME = 'tempo-switch-offline-v1';
+const CACHE_NAME = 'tempo-switch-offline-v2';
 const APP_FILES = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './sounds.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

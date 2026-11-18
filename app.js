@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = 'tempo-switch-settings-v1';
   const LETTERS = ['A', 'B', 'C'];
+  const SOUNDS = ['classic', 'woodblock', 'rimshot', 'hihat', 'beep', 'cowbell'];
   const MIN_BPM = 30;
   const MAX_BPM = 300;
   // 120 → 100 → 120 → 100 → 120 → 100 → 120 → 100 → 120 → 110
@@ -21,6 +22,7 @@
     actionDetail: $('#action-detail'), actionArrow: $('#action-arrow'),
     stop: $('#stop-btn'), sound: $('#sound-btn'),
     soundLabel: $('#sound-label'), soundIcon: $('#sound-icon'),
+    soundSelect: $('#sound-select'), preview: $('#preview-btn'),
     announcement: $('#screenreader-announcement'),
   };
 
@@ -37,7 +39,7 @@
       const sequence = Array.isArray(saved.sequence)
         ? saved.sequence.filter((letter) => LETTERS.includes(letter)).slice(0, 256)
         : [...DEFAULT_SEQUENCE];
-      return { presets, sequence, soundOn: saved.soundOn !== false };
+      return { presets, sequence, soundOn: saved.soundOn !== false, soundChoice: SOUNDS.includes(saved.soundChoice) ? saved.soundChoice : 'classic' };
     } catch (_) {
       return null;
     }
@@ -48,6 +50,7 @@
     presets: saved?.presets ?? { ...DEFAULT_PRESETS },
     sequence: saved?.sequence ?? [...DEFAULT_SEQUENCE],
     soundOn: saved?.soundOn ?? true,
+    soundChoice: saved?.soundChoice ?? 'classic',
     playing: false,
     currentIndex: -1,
   };
@@ -59,15 +62,16 @@
         presets: state.presets,
         sequence: state.sequence,
         soundOn: state.soundOn,
+        soundChoice: state.soundChoice,
       }));
     } catch (_) {
       // App still works when storage is blocked (e.g. private browsing).
     }
   }
 
-  // AUDIO: Web Audio's short lookahead avoids the drift of setInterval-only clicks.
-  // On each advance, previously scheduled clicks are cancelled, and the new
-  // BPM's first beat is scheduled ~15 ms after the tap.
+  // AUDIO: Every beat has identical timbre, level and articulation.
+  // On each sequence advance the old clock is cancelled and the new BPM's
+  // first beat is scheduled ~15 ms after the tap.
   let audioContext = null;
   let schedulerTimer = null;
   let beatTime = 0;
@@ -76,6 +80,7 @@
   let clockId = 0;
   let wakeLock = null;
   const soundNodes = new Set();
+  const soundBuffers = new Map();
   const visualTimers = new Set();
 
   function clearVisuals() {
@@ -90,36 +95,62 @@
     for (const node of [...soundNodes]) {
       try {
         node.gain.gain.cancelScheduledValues(now);
-        node.gain.gain.setValueAtTime(0.00001, now);
-        node.oscillator.stop(now + 0.003);
-      } catch (_) {
-        // An oscillator may already have finished.
-      }
+        node.gain.gain.setValueAtTime(0, now);
+        node.source.stop(now + 0.003);
+      } catch (_) { /* Already stopped. */ }
       soundNodes.delete(node);
     }
   }
 
-  function makeClick(time, accented) {
-    if (!state.soundOn || !audioContext) return;
-    const oscillator = audioContext.createOscillator();
+  function prepareBuffers() {
+    if (!audioContext || soundBuffers.size) return;
+    // Reuse the exact five short one-shot samples, embedded for instant offline playback.
+    const samples = window.TEMPO_SOUND_PCM ?? {};
+    for (const [name, encoded] of Object.entries(samples)) {
+      if (!SOUNDS.includes(name)) continue;
+      const bytes = atob(encoded);
+      const buffer = audioContext.createBuffer(1, bytes.length / 2, 44100);
+      const output = buffer.getChannelData(0);
+      for (let i = 0; i < output.length; i++) {
+        const value = bytes.charCodeAt(i * 2) | (bytes.charCodeAt(i * 2 + 1) << 8);
+        output[i] = (value >= 32768 ? value - 65536 : value) / 32768;
+      }
+      soundBuffers.set(name, buffer);
+    }
+  }
+
+  function makeClick(time, force = false) {
+    if ((!force && !state.soundOn) || !audioContext) return;
     const gain = audioContext.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(accented ? 1530 : 1050, time);
-    oscillator.frequency.exponentialRampToValueAtTime(accented ? 940 : 690, time + 0.045);
-    gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.exponentialRampToValueAtTime(accented ? 0.46 : 0.29, time + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.057);
-    oscillator.connect(gain);
+    let source;
+    if (state.soundChoice === 'classic' || !soundBuffers.has(state.soundChoice)) {
+      // Exactly the previous bar-head high click, now played at EVERY beat.
+      source = audioContext.createOscillator();
+      source.type = 'sine';
+      source.frequency.setValueAtTime(1530, time);
+      source.frequency.exponentialRampToValueAtTime(940, time + 0.045);
+      gain.gain.setValueAtTime(0.0001, time);
+      gain.gain.exponentialRampToValueAtTime(0.46, time + 0.002);
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.057);
+    } else {
+      source = audioContext.createBufferSource();
+      source.buffer = soundBuffers.get(state.soundChoice);
+      // Same gain for every click; no accents or first-beat boosts.
+      gain.gain.setValueAtTime(0.76, time);
+    }
+    source.connect(gain);
     gain.connect(audioContext.destination);
-    const node = { oscillator, gain };
+    const node = { source, gain };
     soundNodes.add(node);
-    oscillator.onended = () => {
+    source.onended = () => {
       soundNodes.delete(node);
-      oscillator.disconnect();
+      source.disconnect();
       gain.disconnect();
     };
-    oscillator.start(time);
-    oscillator.stop(time + 0.06);
+    source.start(time);
+    if (state.soundChoice === 'classic' || !soundBuffers.has(state.soundChoice)) {
+      source.stop(time + 0.06);
+    }
   }
 
   function queueVisualBeat(time, ordinal, generation) {
@@ -146,7 +177,7 @@
     // Schedule only 90 ms ahead. This is short enough for instant BPM changes.
     while (beatTime < audioContext.currentTime + 0.09) {
       const ordinal = beatIndex % 4;
-      makeClick(beatTime, ordinal === 0);
+      makeClick(beatTime);
       queueVisualBeat(beatTime, ordinal, generation);
       beatTime += interval;
       beatIndex++;
@@ -186,6 +217,7 @@
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         if (!AudioContextClass) throw new Error('Web Audio API is unsupported');
         audioContext = new AudioContextClass();
+        prepareBuffers();
       }
       if (audioContext.state !== 'running') await audioContext.resume();
       if (request !== audioRequestId || !state.playing) return;
@@ -264,6 +296,7 @@
   }
 
   function renderPresets() {
+    els.soundSelect.value = state.soundChoice;
     for (const letter of LETTERS) {
       const input = $(`#bpm${letter}`);
       if (document.activeElement !== input) input.value = state.presets[letter];
@@ -368,6 +401,27 @@
   els.undo.addEventListener('click', undo);
   els.clear.addEventListener('click', () => {
     if (state.sequence.length) changeSequence([]);
+  });
+  els.soundSelect.addEventListener('change', () => {
+    if (!SOUNDS.includes(els.soundSelect.value)) return;
+    state.soundChoice = els.soundSelect.value;
+    saveSettings();
+    if (state.playing && audioContext?.state === 'running') restartClock();
+  });
+  els.preview.addEventListener('click', async () => {
+    try {
+      if (!audioContext) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) throw new Error('Web Audio API is unsupported');
+        audioContext = new AudioContextClass();
+        prepareBuffers();
+      }
+      if (audioContext.state !== 'running') await audioContext.resume();
+      // Preview is independent of mute; it doesn't change the running sequence.
+      makeClick(audioContext.currentTime + 0.012, true);
+    } catch (_) {
+      els.announcement.textContent = '試聴できませんでした。ブラウザーの音声設定を確認してください。';
+    }
   });
   els.advance.addEventListener('click', advance);
   els.stop.addEventListener('click', stopPlayback);
